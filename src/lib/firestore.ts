@@ -95,9 +95,23 @@ export async function saveMemoryPoint(uid: string, point: Omit<MemoryPoint, "id"
   return docRef.id
 }
 
-export async function loadMemoryPoints(uid: string, count = 10): Promise<MemoryPoint[]> {
+export async function loadMemoryPoints(uid: string, count = 20): Promise<MemoryPoint[]> {
   const ref = collection(db, "memory", uid, "points")
   const q = query(ref, orderBy("score", "desc"), limit(count))
   const snap = await getDocs(q)
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as MemoryPoint))
+}
+
+/**
+ * Load memory doc + subcollection points cùng lúc.
+ * Trả về Memory object với longTerm được populate từ subcollection
+ * (Thay thế getMemory() để đảm bảo longTerm luôn có dữ liệu)
+ */
+export async function getMemoryWithPoints(uid: string): Promise<Memory | null> {
+  const [memDoc, points] = await Promise.all([
+    getMemory(uid),
+    loadMemoryPoints(uid, 20),
+  ])
+  if (!memDoc) return null
+  return { ...memDoc, longTerm: points }
 }

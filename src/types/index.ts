@@ -57,6 +57,7 @@ export interface MemoryPoint {
   content: string         // Nội dung quan trọng
   topic: string           // Chủ đề liên quan
   score: number           // Độ quan trọng 1-10
+  embedding?: number[]    // Vector 768 chiều từ Gemini text-embedding-004 (RAG)
   createdAt: Timestamp
   lastUsed: Timestamp
 }

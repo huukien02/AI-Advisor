@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { buildPrompt } from "@/lib/promptEngine"
 import { optimizeHistory, optimizeSystemPrompt, getTokenStats } from "@/lib/tokenOptimizer"
+import { embedText } from "@/lib/embeddings"
 import { Message, Memory, UserProfile } from "@/types"
 
 export const dynamic = "force-dynamic"
@@ -15,10 +16,25 @@ export async function POST(req: NextRequest) {
       preferences?: UserProfile["preferences"] | null
     }
 
-    const rawPrompt = buildPrompt({ memory, history, currentMessage: currentMessage ?? message, preferences })
+    const apiKey = process.env.GEMINI_API_KEY
+    // Dùng model do user chọn trong Settings; fallback về env var hoặc default
+    const model = preferences?.model ?? process.env.GEMINI_MODEL ?? "gemini-2.5-flash"
+    if (!apiKey) return new Response("Missing GEMINI_API_KEY", { status: 500 })
+
+    // ─── RAG: Embed câu hỏi của user TRƯỚC khi build prompt ────────────
+    let queryEmbedding: number[] | undefined
+    try {
+      queryEmbedding = await embedText(message, apiKey)
+    } catch {
+      // Non-fatal: nếu embedding thất bại, fallback về keyword search
+      console.warn("⚠️ Query embedding failed, falling back to keyword search")
+    }
+    // ───────────────────────────────────────────────────────────────────
+
+    const rawPrompt = buildPrompt({ memory, history, currentMessage: currentMessage ?? message, preferences, queryEmbedding })
     const systemPrompt = optimizeSystemPrompt(rawPrompt)
 
-    // Step 21: Tối ưu history trước khi gửi
+    // Tối ưu history trước khi gửi
     const optimizedHistory = optimizeHistory(history)
 
     // Log token stats (dev only)
@@ -26,11 +42,6 @@ export async function POST(req: NextRequest) {
       const stats = getTokenStats(systemPrompt, optimizedHistory, message)
       console.log(`📊 Token stats — system:${stats.system} history:${stats.history} user:${stats.user} total:${stats.total}`)
     }
-
-    const apiKey = process.env.GEMINI_API_KEY
-    // Dùng model do user chọn trong Settings; fallback về env var hoặc default
-    const model = preferences?.model ?? process.env.GEMINI_MODEL ?? "gemini-2.5-flash"
-    if (!apiKey) return new Response("Missing GEMINI_API_KEY", { status: 500 })
 
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`,

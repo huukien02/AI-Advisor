@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server"
 import { Message } from "@/types"
+import { embedBatch } from "@/lib/embeddings"
 
 export const dynamic = "force-dynamic"
 
-// Gọi sau mỗi N tin nhắn để extract memory points + summary
+// Gọi sau mỗi N tin nhắn để extract memory points + summary + embeddings (RAG)
 export async function POST(req: NextRequest) {
   try {
     const { history } = await req.json() as { history: Message[] }
@@ -60,6 +61,29 @@ Chỉ trích xuất thông tin THỰC SỰ quan trọng (tối đa 3 điểm). S
     if (!jsonMatch) return new Response("Invalid response", { status: 500 })
 
     const result = JSON.parse(jsonMatch[0])
+
+    // ─── RAG: Tạo embeddings cho từng memory point ────────────────
+    // Dùng batch API để tiết kiệm — 1 request cho tất cả points
+    if (Array.isArray(result.memoryPoints) && result.memoryPoints.length > 0) {
+      try {
+        const textsToEmbed = result.memoryPoints.map(
+          (p: { topic: string; content: string }) => `${p.topic}: ${p.content}`
+        )
+        const embeddings = await embedBatch(textsToEmbed, apiKey)
+        result.memoryPoints = result.memoryPoints.map(
+          (p: { content: string; topic: string; score: number }, i: number) => ({
+            ...p,
+            embedding: embeddings[i],
+          })
+        )
+        console.log(`✅ RAG: Generated ${embeddings.length} embeddings for memory points`)
+      } catch (embErr) {
+        // Non-fatal: nếu embedding thất bại, vẫn lưu memory point (fallback keyword search)
+        console.warn("⚠️ Embedding generation failed, saving without embedding:", embErr)
+      }
+    }
+    // ─────────────────────────────────────────────────────────────
+
     return Response.json(result)
   } catch (err) {
     console.error("Memory API error:", err)

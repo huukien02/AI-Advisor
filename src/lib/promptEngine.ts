@@ -1,11 +1,12 @@
 import { Memory, Message, UserProfile } from "@/types"
-import { detectIntent, rankMemory, selectContext } from "./intelligence"
+import { detectIntent, rankMemory, selectContext, semanticRankMemory } from "./intelligence"
 
 interface BuildPromptOptions {
   memory: Memory | null
   history: Message[]
   currentMessage?: string
   preferences?: UserProfile["preferences"] | null
+  queryEmbedding?: number[]   // RAG: vector của câu hỏi hiện tại (từ /api/chat)
 }
 
 export function buildPrompt({
@@ -13,6 +14,7 @@ export function buildPrompt({
   history,
   currentMessage = "",
   preferences,
+  queryEmbedding,
 }: BuildPromptOptions): string {
   const sections: string[] = []
 
@@ -94,8 +96,13 @@ export function buildPrompt({
       sections.push(`## Tóm tắt về người dùng:\n${memory.summary}`)
     }
     if (memory.longTerm?.length > 0) {
-      const ranked = rankMemory(memory.longTerm, currentMessage, history)
-      const selected = selectContext(currentMessage, ranked, 5)
+      // RAG: dùng semantic ranking nếu có queryEmbedding, fallback keyword nếu không
+      const ranked = queryEmbedding
+        ? semanticRankMemory(queryEmbedding, memory.longTerm, history)
+        : rankMemory(memory.longTerm, currentMessage, history)
+      const selected = queryEmbedding
+        ? ranked.slice(0, 5)                              // semantic đã rank chính xác rồi
+        : selectContext(currentMessage, ranked, 5)        // keyword: cần thêm bước filter
       const relevant = selected.length > 0 ? selected : ranked.slice(0, 3)
       if (relevant.length > 0) {
         sections.push(`## Thông tin đã biết:\n${relevant.map((p) => `- [${p.topic}] ${p.content}`).join("\n")}`)

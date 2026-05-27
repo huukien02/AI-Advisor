@@ -1,4 +1,5 @@
 import { Message, MemoryPoint } from "@/types"
+import { cosineSimilarity } from "./embeddings"
 
 // ─── Step 12: Detect Intent ──────────────────────────────────
 export type Intent =
@@ -117,6 +118,46 @@ export function rankMemory(
   return ranked
     .sort((a, b) => b.total - a.total)
     .map((r) => r.point)
+}
+
+// ─── Step 15: Semantic Rank (RAG) ───────────────────────────
+/**
+ * Xếp hạng memory points dùng vector similarity thay vì keyword matching.
+ * Score = cosine_similarity (chính) + recency + importance + context_boost
+ *
+ * Fallback về score=0 nếu point chưa có embedding (backward-compatible).
+ */
+export function semanticRankMemory(
+  queryEmbedding: number[],
+  points: MemoryPoint[],
+  history: Message[]
+): MemoryPoint[] {
+  if (points.length === 0) return []
+
+  const now = Date.now()
+  const historyText = history.map((m) => m.content).join(" ").toLowerCase()
+
+  const ranked = points.map((point) => {
+    // 1. Semantic similarity: cosine(query, point) → scale lên 0-10
+    const similarity = point.embedding
+      ? cosineSimilarity(queryEmbedding, point.embedding) * 10
+      : 0  // point cũ chưa có embedding → dùng fallback ở promptEngine
+
+    // 2. Recency: ưu tiên memory mới hơn
+    const ageMs = now - (point.createdAt as unknown as { seconds: number }).seconds * 1000
+    const ageDays = ageMs / (1000 * 60 * 60 * 24)
+    const recency = Math.max(0, 5 - ageDays * 0.2)
+
+    // 3. Importance: score từ Firestore
+    const importance = point.score ?? 5
+
+    // 4. Context boost: topic xuất hiện gần đây trong hội thoại
+    const contextBoost = historyText.includes(point.topic.toLowerCase()) ? 2 : 0
+
+    return { point, total: similarity + recency + importance + contextBoost }
+  })
+
+  return ranked.sort((a, b) => b.total - a.total).map((r) => r.point)
 }
 
 // ─── Helper ─────────────────────────────────────────────────

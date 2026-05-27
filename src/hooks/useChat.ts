@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import { Message, Memory, UserProfile } from "@/types"
 import {
-  saveMessage, loadRecentMessages, getMemory,
+  saveMessage, loadRecentMessages, getMemoryWithPoints,
   updateMemorySummary, saveMemoryPoint, updateSession,
 } from "@/lib/firestore"
 import { checkSafety, getSafetyMessage } from "@/lib/safetyEngine"
@@ -44,7 +44,7 @@ export function useChat(uid: string | null, sessionId: string | null, preference
     try {
       const [history, memory] = await Promise.all([
         loadRecentMessages(uid, sessionId, 20),
-        getMemory(uid),
+        getMemoryWithPoints(uid),   // RAG: load memory + subcollection points (với embedding)
       ])
       setMessages(history)
       memoryRef.current = memory
@@ -69,11 +69,17 @@ export function useChat(uid: string | null, sessionId: string | null, preference
       if (Array.isArray(memoryPoints)) {
         for (const p of memoryPoints) {
           if (p.content && p.topic) {
-            await saveMemoryPoint(uid, { content: p.content, topic: p.topic, score: p.score ?? 5 }).catch(console.warn)
+            // RAG: lưu embedding (nếu có) cùng với memory point
+            await saveMemoryPoint(uid, {
+              content: p.content,
+              topic: p.topic,
+              score: p.score ?? 5,
+              ...(p.embedding ? { embedding: p.embedding } : {}),
+            }).catch(console.warn)
           }
         }
       }
-      const updated = await getMemory(uid).catch(() => null)
+      const updated = await getMemoryWithPoints(uid).catch(() => null)
       memoryRef.current = updated
     } catch (err) {
       console.warn("Memory update error:", err)
