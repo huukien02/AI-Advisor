@@ -17,8 +17,8 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = process.env.GEMINI_API_KEY
-    // Dùng model do user chọn trong Settings; fallback về env var hoặc default
-    const model = preferences?.model ?? process.env.GEMINI_MODEL ?? "gemini-2.5-flash"
+    // Fix cứng model: gemini-2.0-flash bị quota free-tier = 0, nên luôn dùng 2.5-flash
+    const model = "gemini-2.5-flash"
     if (!apiKey) return new Response("Missing GEMINI_API_KEY", { status: 500 })
 
     // ─── RAG: Embed câu hỏi của user TRƯỚC khi build prompt ────────────
